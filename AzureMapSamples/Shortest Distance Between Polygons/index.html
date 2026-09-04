@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ZIP Boundary Route Distance</title>
+    <link rel="stylesheet" href="https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.css">
+    <script src="https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js" referrerpolicy="no-referrer"></script>
+    <style>
+        :root {
+            --ink: #18201f;
+            --muted: #66706d;
+            --paper: #f5f6f2;
+            --panel: #ffffff;
+            --line: #d8ddda;
+            --origin: #087f72;
+            --destination: #d45b3e;
+            --route: #4c5c67;
+            --highlight: #f5b700;
+            --danger: #b42318;
+            --shadow: 0 18px 50px rgba(31, 47, 43, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 100%;
+            min-width: 320px;
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            overflow: hidden;
+            color: var(--ink);
+            background:
+                linear-gradient(135deg, rgba(8, 127, 114, 0.08), transparent 36%),
+                radial-gradient(circle at 80% 20%, rgba(245, 183, 0, 0.12), transparent 26%),
+                var(--paper);
+            font-family: "Segoe UI", Tahoma, sans-serif;
+        }
+
+        .app {
+            display: grid;
+            grid-template-columns: minmax(290px, 370px) 1fr;
+            width: 100%;
+            height: 100%;
+        }
+
+        .sidebar {
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            min-height: 0;
+            padding: 34px 30px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.94);
+            border-right: 1px solid var(--line);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(16px);
+        }
+
+        h1 {
+            max-width: 290px;
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 38px;
+            font-weight: 600;
+            line-height: 0.98;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            margin: 10px 0 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.55;
+        }
+
+        form {
+            display: grid;
+            gap: 16px;
+        }
+
+        .map-controls {
+            position: absolute;
+            z-index: 3;
+            top: 18px;
+            left: 50%;
+            display: grid;
+            grid-template-columns: minmax(150px, 220px) minmax(150px, 220px) auto;
+            gap: 12px;
+            width: min(720px, calc(100% - 36px));
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid rgba(255, 255, 255, 0.85);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            transform: translateX(-50%);
+            backdrop-filter: blur(14px);
+        }
+
+        .map-controls button {
+            align-self: end;
+            width: auto;
+            min-width: 170px;
+        }
+
+        .field {
+            display: grid;
+            gap: 7px;
+        }
+
+        label {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        input {
+            width: 100%;
+            height: 46px;
+            padding: 0 13px;
+            color: var(--ink);
+            background: #fbfcfa;
+            border: 1px solid #cbd2ce;
+            border-radius: 6px;
+            outline: none;
+            font: inherit;
+            transition: border-color 140ms ease, box-shadow 140ms ease;
+        }
+
+        input:focus {
+            border-color: var(--origin);
+            box-shadow: 0 0 0 3px rgba(8, 127, 114, 0.13);
+        }
+
+        .zip-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        button {
+            width: 100%;
+            min-height: 48px;
+            padding: 11px 18px;
+            color: #fff;
+            background: var(--ink);
+            border: 0;
+            border-radius: 6px;
+            cursor: pointer;
+            font: 700 14px/1.2 "Segoe UI", Tahoma, sans-serif;
+            transition: background 140ms ease, transform 140ms ease;
+        }
+
+        button:hover:not(:disabled) {
+            background: #087f72;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            cursor: wait;
+            opacity: 0.65;
+        }
+
+        .status {
+            min-height: 22px;
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .status.error {
+            color: var(--danger);
+        }
+
+        .result {
+            display: none;
+            padding-top: 20px;
+            border-top: 1px solid var(--line);
+        }
+
+        .result.visible {
+            display: block;
+            animation: reveal 260ms ease both;
+        }
+
+        .result-label {
+            margin: 0 0 4px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .distance {
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 40px;
+            line-height: 1;
+            letter-spacing: 0;
+        }
+
+        .full-distance-result {
+            margin-top: 20px;
+        }
+
+        .full-distance {
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: 30px;
+            line-height: 1;
+            letter-spacing: 0;
+        }
+
+        .result-detail {
+            margin: 9px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .legend {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: auto;
+            padding-top: 18px;
+            border-top: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .swatch {
+            flex: 0 0 auto;
+            width: 22px;
+            height: 4px;
+            background: var(--route);
+        }
+
+        .swatch.origin,
+        .swatch.destination {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .swatch.origin { background: var(--origin); }
+        .swatch.destination { background: var(--destination); }
+        .swatch.highlight { height: 7px; background: var(--highlight); }
+
+        .map-shell {
+            position: relative;
+            min-width: 0;
+            min-height: 0;
+        }
+
+        #map {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            background: #dfe6e2;
+        }
+
+        .map-empty {
+            position: absolute;
+            z-index: 1;
+            top: 50%;
+            left: 50%;
+            width: min(320px, calc(100% - 40px));
+            padding: 18px 20px;
+            color: #3d4945;
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            text-align: center;
+            transform: translate(-50%, -50%);
+            backdrop-filter: blur(10px);
+        }
+
+        .map-empty.hidden {
+            display: none;
+        }
+
+        @keyframes reveal {
+            from { opacity: 0; transform: translateY(7px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 760px) {
+            body { overflow: auto; }
+
+            .app {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto minmax(480px, 62vh);
+                height: auto;
+                min-height: 100%;
+            }
+
+            .sidebar {
+                padding: 25px 20px;
+                overflow: visible;
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            h1 { font-size: 34px; }
+            .legend { margin-top: 0; }
+            .map-shell { min-height: 480px; }
+
+            .map-controls {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .map-controls button {
+                grid-column: 1 / -1;
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 420px) {
+            .map-controls { grid-template-columns: 1fr; }
+            .map-controls button { grid-column: auto; }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <aside class="sidebar">
+            <header>
+                <h1>Road distance between ZIPs</h1>
+                <p class="subtitle">Measures the route segment between the two postal boundaries.</p>
+            </header>
+
+            <p id="status" class="status" role="status" aria-live="polite">Ready for two US ZIP codes.</p>
+
+            <section id="result" class="result" aria-live="polite">
+                <p class="result-label">Boundary-to-boundary route</p>
+                <p id="distance" class="distance"></p>
+                <div class="full-distance-result">
+                    <p class="result-label">Full center-to-center route</p>
+                    <p id="full-distance" class="full-distance"></p>
+                </div>
+                <p id="result-detail" class="result-detail"></p>
+            </section>
+
+            <div class="legend" aria-label="Map legend">
+                <div class="legend-item"><span class="swatch origin"></span>Origin boundary</div>
+                <div class="legend-item"><span class="swatch destination"></span>Destination boundary</div>
+                <div class="legend-item"><span class="swatch"></span>Full route</div>
+                <div class="legend-item"><span class="swatch highlight"></span>Measured segment</div>
+            </div>
+        </aside>
+
+        <section class="map-shell" aria-label="Azure map">
+            <div id="map"></div>
+            <form id="distance-form" class="map-controls">
+                <div class="field">
+                    <label for="origin-zip">Origin ZIP</label>
+                    <input id="origin-zip" name="originZip" type="text" inputmode="numeric" autocomplete="postal-code" placeholder="98052" required>
+                </div>
+                <div class="field">
+                    <label for="destination-zip">Destination ZIP</label>
+                    <input id="destination-zip" name="destinationZip" type="text" inputmode="numeric" autocomplete="postal-code" placeholder="98101" required>
+                </div>
+                <button id="calculate-button" type="submit">Calculate road distance</button>
+            </form>
+            <div id="map-empty" class="map-empty">Enter two ZIP codes to map their boundaries and shortest driving route.</div>
+        </section>
+    </main>
+
+    <script>
+        const AZURE_MAPS_SUBSCRIPTION_KEY = "";
+
+        const form = document.getElementById("distance-form");
+        const button = document.getElementById("calculate-button");
+        const statusElement = document.getElementById("status");
+        const resultElement = document.getElementById("result");
+        const distanceElement = document.getElementById("distance");
+        const fullDistanceElement = document.getElementById("full-distance");
+        const detailElement = document.getElementById("result-detail");
+        const emptyState = document.getElementById("map-empty");
+
+        let map;
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            resultElement.classList.remove("visible");
+            button.disabled = true;
+            button.textContent = "Calculating...";
+
+            const originZip = form.elements.originZip.value.trim();
+            const destinationZip = form.elements.destinationZip.value.trim();
+
+            try {
+                if (!AZURE_MAPS_SUBSCRIPTION_KEY || AZURE_MAPS_SUBSCRIPTION_KEY === "YOUR_AZURE_MAPS_SUBSCRIPTION_KEY") {
+                    throw new Error("Set AZURE_MAPS_SUBSCRIPTION_KEY in the HTML before calculating.");
+                }
+
+                setStatus("Loading postal boundaries...");
+                await ensureMap();
+
+                const [origin, destination] = await Promise.all([
+                    getPostalArea(originZip, AZURE_MAPS_SUBSCRIPTION_KEY),
+                    getPostalArea(destinationZip, AZURE_MAPS_SUBSCRIPTION_KEY)
+                ]);
+
+                setStatus("Finding the shortest driving route...");
+                const route = await getShortestRoute(origin.center, destination.center, AZURE_MAPS_SUBSCRIPTION_KEY);
+                const analysis = analyzeRoute(route, origin.features, destination.features);
+
+                renderMap(origin, destination, route, analysis);
+                showResult(analysis, route);
+                setStatus("Calculation complete.");
+            } catch (error) {
+                setStatus(error.message || "Unable to calculate the route.", true);
+            } finally {
+                button.disabled = false;
+                button.textContent = "Calculate road distance";
+            }
+        });
+
+        function setStatus(message, isError = false) {
+            statusElement.textContent = message;
+            statusElement.classList.toggle("error", isError);
+        }
+
+        function ensureMap() {
+            if (map) {
+                return Promise.resolve();
+            }
+
+            map = new atlas.Map("map", {
+                center: [-98.5, 39.5],
+                zoom: 3,
+                style: "road",
+                authOptions: {
+                    authType: "subscriptionKey",
+                    subscriptionKey: AZURE_MAPS_SUBSCRIPTION_KEY
+                }
+            });
+
+            return new Promise((resolve, reject) => {
+                map.events.addOnce("ready", resolve);
+                map.events.addOnce("error", (event) => reject(new Error(event.message || "Azure Maps could not be initialized.")));
+            });
+        }
+
+        async function getPostalArea(zipCode, subscriptionKey) {
+            const searchUrl = new URL("https://atlas.microsoft.com/geocode");
+            searchUrl.search = new URLSearchParams({
+                "api-version": "2026-01-01",
+                postalCode: zipCode,
+                countryRegion: "US",
+                top: "1"
+            });
+
+            const search = await fetchJson(searchUrl, subscriptionKey);
+            const match = search.features && search.features[0];
+            const center = match && match.geometry && match.geometry.coordinates;
+
+            if (!match || !Array.isArray(center)) {
+                throw new Error(`No postal boundary was found for ZIP ${zipCode}.`);
+            }
+
+            const polygonUrl = new URL("https://atlas.microsoft.com/search/polygon");
+            polygonUrl.search = new URLSearchParams({
+                "api-version": "2026-01-01",
+                coordinates: center.join(","),
+                resultType: "postalCode",
+                resolution: "large"
+            });
+
+            const polygon = await fetchJson(polygonUrl, subscriptionKey);
+            const features = normalizePolygonFeatures(polygon, zipCode);
+
+            if (!features.length) {
+                throw new Error(`Azure Maps returned no usable polygon for ZIP ${zipCode}.`);
+            }
+
+            return {
+                zipCode,
+                center,
+                features
+            };
+        }
+
+        function normalizePolygonFeatures(geoJson, zipCode) {
+            if (!geoJson) return [];
+
+            let geometries;
+            if (geoJson.type === "FeatureCollection") {
+                geometries = geoJson.features.map((feature) => feature.geometry);
+            } else if (geoJson.type === "Feature") {
+                geometries = [geoJson.geometry];
+            } else {
+                geometries = [geoJson];
+            }
+
+            return geometries
+                .flatMap(flattenPolygonGeometries)
+                .map((geometry) => turf.feature(geometry, { zipCode }));
+        }
+
+        function flattenPolygonGeometries(geometry) {
+            if (!geometry) return [];
+            if (["Polygon", "MultiPolygon"].includes(geometry.type)) return [geometry];
+            if (geometry.type === "GeometryCollection") {
+                return geometry.geometries.flatMap(flattenPolygonGeometries);
+            }
+            return [];
+        }
+
+        async function getShortestRoute(origin, destination, subscriptionKey) {
+            const response = await fetch("https://atlas.microsoft.com/route/directions?api-version=2025-01-01", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/geo+json",
+                    "subscription-key": subscriptionKey
+                },
+                body: JSON.stringify({
+                    type: "FeatureCollection",
+                    features: [
+                        waypoint(origin, 0),
+                        waypoint(destination, 1)
+                    ],
+                    optimizeRoute: "shortest",
+                    routeOutputOptions: ["routePath"],
+                    travelMode: "driving"
+                })
+            });
+
+            const data = await parseResponse(response);
+            const routeFeature = data.features && data.features.find((feature) => feature.properties && feature.properties.type === "RoutePath");
+
+            if (!routeFeature || !routeFeature.geometry) {
+                throw new Error("Azure Maps did not return a route path for these ZIP codes.");
+            }
+
+            return {
+                feature: routeFeature,
+                line: turf.lineString(flattenRouteCoordinates(routeFeature.geometry)),
+                distanceMeters: routeFeature.properties.distanceInMeters
+            };
+        }
+
+        function waypoint(coordinates, pointIndex) {
+            return {
+                type: "Feature",
+                geometry: { type: "Point", coordinates },
+                properties: { pointIndex, pointType: "waypoint" }
+            };
+        }
+
+        function flattenRouteCoordinates(geometry) {
+            const paths = geometry.type === "MultiLineString" ? geometry.coordinates : [geometry.coordinates];
+            const coordinates = [];
+
+            for (const path of paths) {
+                for (const coordinate of path) {
+                    const previous = coordinates[coordinates.length - 1];
+                    if (!previous || previous[0] !== coordinate[0] || previous[1] !== coordinate[1]) {
+                        coordinates.push(coordinate);
+                    }
+                }
+            }
+
+            return coordinates;
+        }
+
+        function analyzeRoute(route, originFeatures, destinationFeatures) {
+            const originCrossings = getBoundaryCrossings(route.line, originFeatures, "origin");
+            const destinationCrossings = getBoundaryCrossings(route.line, destinationFeatures, "destination");
+
+            if (!originCrossings.length) {
+                throw new Error("The route does not cross the origin ZIP boundary. Try a different ZIP pair.");
+            }
+            if (!destinationCrossings.length) {
+                throw new Error("The route does not cross the destination ZIP boundary. Try a different ZIP pair.");
+            }
+
+            let bestPair;
+            for (const origin of originCrossings) {
+                for (const destination of destinationCrossings) {
+                    const span = destination.locationKm - origin.locationKm;
+                    if (span >= 0 && (!bestPair || span < bestPair.distanceKm)) {
+                        bestPair = { origin, destination, distanceKm: span };
+                    }
+                }
+            }
+
+            if (!bestPair) {
+                throw new Error("The route boundary crossings could not be ordered from origin to destination.");
+            }
+
+            return {
+                ...bestPair,
+                segment: turf.lineSliceAlong(route.line, bestPair.origin.locationKm, bestPair.destination.locationKm, { units: "kilometers" }),
+                crossings: [bestPair.origin, bestPair.destination]
+            };
+        }
+
+        function getBoundaryCrossings(routeLine, polygonFeatures, boundary) {
+            const crossings = [];
+
+            for (const polygon of polygonFeatures) {
+                const intersections = turf.lineIntersect(routeLine, polygon);
+                for (const point of intersections.features) {
+                    const snapped = turf.nearestPointOnLine(routeLine, point, { units: "kilometers" });
+                    crossings.push({
+                        feature: {
+                            ...point,
+                            properties: { boundary }
+                        },
+                        locationKm: snapped.properties.location
+                    });
+                }
+            }
+
+            crossings.sort((left, right) => left.locationKm - right.locationKm);
+            return crossings.filter((crossing, index) => index === 0 || Math.abs(crossing.locationKm - crossings[index - 1].locationKm) > 0.001);
+        }
+
+        function renderMap(origin, destination, route, analysis) {
+            clearMapData();
+
+            const polygonSource = new atlas.source.DataSource("postal-polygons");
+            const routeSource = new atlas.source.DataSource("route-lines");
+            const crossingSource = new atlas.source.DataSource("crossings");
+            map.sources.add([polygonSource, routeSource, crossingSource]);
+
+            polygonSource.add([
+                ...origin.features.map((feature) => ({ ...feature, properties: { ...feature.properties, boundary: "origin" } })),
+                ...destination.features.map((feature) => ({ ...feature, properties: { ...feature.properties, boundary: "destination" } }))
+            ]);
+            routeSource.add([
+                { ...route.line, properties: { kind: "full" } },
+                { ...analysis.segment, properties: { kind: "measured" } }
+            ]);
+            crossingSource.add(analysis.crossings.map((crossing) => crossing.feature));
+
+            map.layers.add([
+                new atlas.layer.PolygonLayer(polygonSource, "postal-fill", {
+                    fillColor: [
+                        "match", ["get", "boundary"],
+                        "origin", "#087f72",
+                        "destination", "#d45b3e",
+                        "#66706d"
+                    ],
+                    fillOpacity: 0.14
+                }),
+                new atlas.layer.LineLayer(polygonSource, "postal-outline", {
+                    strokeColor: [
+                        "match", ["get", "boundary"],
+                        "origin", "#087f72",
+                        "destination", "#d45b3e",
+                        "#66706d"
+                    ],
+                    strokeWidth: 3
+                }),
+                new atlas.layer.LineLayer(routeSource, "full-route", {
+                    filter: ["==", ["get", "kind"], "full"],
+                    strokeColor: "#4c5c67",
+                    strokeOpacity: 0.85,
+                    strokeWidth: 5
+                }),
+                new atlas.layer.LineLayer(routeSource, "measured-route", {
+                    filter: ["==", ["get", "kind"], "measured"],
+                    strokeColor: "#f5b700",
+                    strokeWidth: 9
+                }),
+                new atlas.layer.BubbleLayer(crossingSource, "boundary-crossings", {
+                    color: [
+                        "match", ["get", "boundary"],
+                        "origin", "#087f72",
+                        "destination", "#d45b3e",
+                        "#ffffff"
+                    ],
+                    radius: 7,
+                    strokeColor: "#ffffff",
+                    strokeWidth: 3
+                })
+            ]);
+
+            const bounds = turf.bbox(turf.featureCollection([
+                ...origin.features,
+                ...destination.features,
+                route.line
+            ]));
+            map.setCamera({ bounds, padding: 60 });
+            emptyState.classList.add("hidden");
+        }
+
+        function clearMapData() {
+            if (!map) return;
+            for (const layerId of ["boundary-crossings", "measured-route", "full-route", "postal-outline", "postal-fill"]) {
+                if (map.layers.getLayerById(layerId)) map.layers.remove(layerId);
+            }
+            for (const sourceId of ["crossings", "route-lines", "postal-polygons"]) {
+                if (map.sources.getById(sourceId)) map.sources.remove(sourceId);
+            }
+        }
+
+        function showResult(analysis, route) {
+            const miles = analysis.distanceKm * 0.621371;
+            const fullRouteMiles = route.distanceMeters / 1609.344;
+            distanceElement.textContent = `${miles.toFixed(miles < 10 ? 2 : 1)} mi`;
+            fullDistanceElement.textContent = `${fullRouteMiles.toFixed(fullRouteMiles < 10 ? 2 : 1)} mi`;
+            detailElement.textContent = `${analysis.distanceKm.toFixed(2)} km between boundaries; ${(route.distanceMeters / 1000).toFixed(2)} km center to center.`;
+            resultElement.classList.add("visible");
+        }
+
+        async function fetchJson(url, subscriptionKey) {
+            const response = await fetch(url, {
+                headers: { "subscription-key": subscriptionKey }
+            });
+            return parseResponse(response);
+        }
+
+        async function parseResponse(response) {
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const message = body.error && body.error.message;
+                throw new Error(message || `Azure Maps request failed (${response.status}).`);
+            }
+            return body;
+        }
+    </script>
+</body>
+</html>
